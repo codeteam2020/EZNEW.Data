@@ -22,7 +22,7 @@ namespace EZNEW.Data
         {
         }
 
-        const string identityKey = "micbeach_data_defaultdbcommandengine";
+        const string identityKey = "eznew_data_defaultdbcommandengine";
 
         /// <summary>
         /// identity key

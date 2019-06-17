@@ -3,14 +3,17 @@ using EZNEW.Develop.CQuery;
 using EZNEW.Develop.CQuery.CriteriaConvert;
 using EZNEW.Develop.CQuery.Translator;
 using EZNEW.Develop.Entity;
+using EZNEW.Framework.Extension;
+using EZNEW.Framework.Fault;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace EZNEW.Data.Translators
 {
     /// <summary>
-    /// Query Translator Implement For SqlServer DataBase
+    /// Query Translator Implement For mysql DataBase
     /// </summary>
     public class MySqlQueryTranslator : IQueryTranslator
     {
@@ -27,9 +30,18 @@ namespace EZNEW.Data.Translators
         const string LikeOperator = "LIKE";
         public const string ObjPetName = "TB";
         int subObjectSequence = 0;
+        int recurveObjectSequence = 0;
         string parameterPrefix = "?";
         const string TreeTableName = "RecurveTable";
         const string TreeTablePetName = "RTT";
+        static Dictionary<JoinType, string> joinOperatorDict = new Dictionary<JoinType, string>()
+        {
+            { JoinType.InnerJoin,"INNER JOIN" },
+            { JoinType.CrossJoin,"CROSS JOIN" },
+            { JoinType.LeftJoin,"LEFT JOIN" },
+            { JoinType.RightJoin,"RIGHT JOIN" },
+            { JoinType.FullJoin,"FULL JOIN" }
+        };
 
         #endregion
 
@@ -57,7 +69,13 @@ namespace EZNEW.Data.Translators
         /// <returns>translate result</returns>
         public TranslateResult Translate(IQuery query)
         {
-            return ExecuteTranslate(query);
+            Init();
+            var result = ExecuteTranslate(query);
+            if (!result.WithScripts.IsNullOrEmpty())
+            {
+                result.PreScript = FormatWithScript(result.WithScripts);
+            }
+            return result;
         }
 
         /// <summary>
@@ -79,54 +97,153 @@ namespace EZNEW.Data.Translators
                 StringBuilder orderBuilder = new StringBuilder();
                 Dictionary<string, object> parameters = paras ?? new Dictionary<string, object>();
                 objectName = string.IsNullOrWhiteSpace(objectName) ? ObjPetName : objectName;
+                List<string> withScripts = new List<string>();
+                string recurveTableName = string.Empty;
+                string recurveTablePetName = string.Empty;
+
+                #region query condition
+
                 if (query.Criterias != null && query.Criterias.Count > 0)
                 {
                     int index = 0;
                     foreach (var queryItem in query.Criterias)
                     {
-                        conditionBuilder.AppendFormat("{0} {1}", index > 0 ? " " + queryItem.Item1.ToString() : "", TranslateCondition(query, queryItem, parameters, objectName));
+                        var queryItemCondition = TranslateCondition(query, queryItem, parameters, objectName);
+                        if (!queryItemCondition.WithScripts.IsNullOrEmpty())
+                        {
+                            withScripts.AddRange(queryItemCondition.WithScripts);
+                            recurveTableName = queryItemCondition.RecurveObjectName;
+                            recurveTablePetName = queryItemCondition.RecurvePetName;
+                        }
+                        conditionBuilder.AppendFormat("{0} {1}"
+                            , index > 0 ? " " + queryItem.Item1.ToString() : ""
+                            , queryItemCondition.ConditionString);
                         index++;
                     }
                 }
+
+                #endregion
+
+                #region sort
+
                 if (!subQuery && query.Orders != null && query.Orders.Count > 0)
                 {
                     foreach (var orderItem in query.Orders)
                     {
-                        orderBuilder.AppendFormat("{0} {1},", ConvertOrderCriteriaName(query, objectName, orderItem), orderItem.Desc ? "DESC" : "ASC");
+                        orderBuilder.AppendFormat("{0} {1},"
+                            , ConvertOrderCriteriaName(query, objectName, orderItem)
+                            , orderItem.Desc ? "DESC" : "ASC");
                     }
                 }
+
+                #endregion
+
+                #region join
+
+                bool allowJoin = true;
+                StringBuilder joinBuilder = new StringBuilder();
+                if (!query.JoinItems.IsNullOrEmpty())
+                {
+                    foreach (var joinItem in query.JoinItems)
+                    {
+                        if (joinItem == null || joinItem.JoinQuery == null)
+                        {
+                            continue;
+                        }
+                        if (joinItem.JoinQuery.QueryModelType == null)
+                        {
+                            throw new EZNEWException("IQuery object must set query model type if use in join operation");
+                        }
+                        string joinObjName = "TSB" + subObjectSequence;
+                        subObjectSequence++;
+                        var joinQueryResult = ExecuteTranslate(joinItem.JoinQuery, parameters, joinObjName, true);
+                        if (!joinQueryResult.ConditionString.IsNullOrEmpty())
+                        {
+                            conditionBuilder.AppendFormat("{0}{1}"
+                                , conditionBuilder.Length == 0 ? "" : " AND"
+                                , joinQueryResult.ConditionString);
+                        }
+                        joinBuilder.AppendFormat(" {0} `{1}` AS {2}{3}"
+                            , GetJoinOperator(joinItem.JoinType)
+                            , DataManager.GetQueryRelationObjectName(ServerType.MySQL, joinItem.JoinQuery)
+                            , joinObjName
+                            , GetJoinCondition(query, joinItem, objectName, joinObjName));
+                        if (!joinQueryResult.JoinScript.IsNullOrEmpty())
+                        {
+                            joinBuilder.AppendFormat(" {0}", joinQueryResult.JoinScript);
+                        }
+                        if (!joinQueryResult.WithScripts.IsNullOrEmpty())
+                        {
+                            withScripts.AddRange(joinQueryResult.WithScripts);
+                            recurveTableName = joinQueryResult.RecurveObjectName;
+                            recurveTablePetName = joinQueryResult.RecurvePetName;
+                        }
+                    }
+                }
+                string joinScript = joinBuilder.ToString();
+
+                #endregion
+
+                #region recurve script
+
                 string conditionString = conditionBuilder.ToString();
-                string preScript = string.Empty;
                 if (query.RecurveCriteria != null)
                 {
+                    allowJoin = false;
                     string nowConditionString = conditionBuilder.ToString();
                     EntityField recurveField = DataManager.GetField(ServerType.MySQL, query, query.RecurveCriteria.Key);
                     EntityField recurveRelationField = DataManager.GetField(ServerType.MySQL, query, query.RecurveCriteria.RelationKey);
-                    conditionString = string.Format("{0}.`{1}` IN (SELECT {3}.`{1}` FROM `{2}` AS {3})", objectName, recurveField.FieldName, TreeTableName, TreeTablePetName);
+                    var recurveIndex = recurveObjectSequence++;
+                    recurveTableName = string.Format("{0}{1}", TreeTableName, recurveIndex);
+                    recurveTablePetName = string.Format("{0}{1}", TreeTablePetName, recurveIndex);
+                    conditionString = string.Format("{0}.`{1}` IN (SELECT {3}.`{1}` FROM `{2}` AS {3})"
+                        , objectName
+                        , recurveField.FieldName
+                        , recurveTableName
+                        , recurveTablePetName);
                     string firstObjectPetName = objectName;
                     string secondObjectPetName = objectName;
-                    string firstTreeTablePetName = TreeTablePetName;
+                    string firstTreeTablePetName = recurveTablePetName;
                     string queryObjectName = DataManager.GetQueryRelationObjectName(ServerType.MySQL, query);
-                    preScript = string.Format("WITH RECURSIVE {0} AS (SELECT {1}.`{2}`,{1}.`{3}` FROM `{4}` AS {1} {5} UNION ALL SELECT {6}.`{2}`,{6}.`{3}` FROM `{4}` AS {6} JOIN {0} AS {7}"
-                        , TreeTableName
+                    string withScript = string.Format("{0} AS (SELECT {1}.`{2}`,{1}.`{3}` FROM `{4}` AS {1}{8} {5} UNION ALL SELECT {6}.`{2}`,{6}.`{3}` FROM `{4}` AS {6} JOIN {0} AS {7}"
+                        , recurveTableName
                         , firstObjectPetName
                         , recurveField.FieldName
                         , recurveRelationField.FieldName
                         , queryObjectName
                         , string.IsNullOrWhiteSpace(nowConditionString) ? "" : string.Format("WHERE {0}", nowConditionString)
                         , secondObjectPetName
-                        , firstTreeTablePetName);
+                        , firstTreeTablePetName
+                        , joinScript);
                     if (query.RecurveCriteria.Direction == RecurveDirection.Up)
                     {
-                        preScript = string.Format("{0} ON {1}.`{2}`={3}.`{4}`)", preScript, secondObjectPetName, recurveField.FieldName, firstTreeTablePetName, recurveRelationField.FieldName);
+                        withScript = string.Format("{0} ON {1}.`{2}`={3}.`{4}`)"
+                            , withScript
+                            , secondObjectPetName
+                            , recurveField.FieldName
+                            , firstTreeTablePetName
+                            , recurveRelationField.FieldName);
                     }
                     else
                     {
-                        preScript = string.Format("{0} ON {1}.`{2}`={3}.`{4}`)", preScript, secondObjectPetName, recurveRelationField.FieldName, firstTreeTablePetName, recurveField.FieldName);
+                        withScript = string.Format("{0} ON {1}.`{2}`={3}.`{4}`)"
+                            , withScript
+                            , secondObjectPetName
+                            , recurveRelationField.FieldName
+                            , firstTreeTablePetName
+                            , recurveField.FieldName);
                     }
+                    withScripts.Add(withScript);
                 }
                 var result = TranslateResult.CreateNewResult(conditionString, orderBuilder.ToString().Trim(','), parameters);
-                result.PreScript = preScript;
+                result.JoinScript = joinScript;
+                result.AllowJoin = allowJoin;
+                result.WithScripts = withScripts;
+                result.RecurveObjectName = recurveTableName;
+                result.RecurvePetName = recurveTablePetName;
+
+                #endregion
+
                 return result;
             }
             else
@@ -141,11 +258,11 @@ namespace EZNEW.Data.Translators
         /// </summary>
         /// <param name="queryItem">query condition</param>
         /// <returns></returns>
-        string TranslateCondition(IQuery query, Tuple<QueryOperator, IQueryItem> queryItem, Dictionary<string, object> parameters, string objectName)
+        TranslateResult TranslateCondition(IQuery query, Tuple<QueryOperator, IQueryItem> queryItem, Dictionary<string, object> parameters, string objectName)
         {
             if (queryItem == null)
             {
-                return string.Empty;
+                return TranslateResult.Empty;
             }
             Criteria criteria = queryItem.Item2 as Criteria;
             if (criteria != null)
@@ -165,15 +282,31 @@ namespace EZNEW.Data.Translators
                     return TranslateCondition(groupQuery, firstCriterias, parameters, objectName);
                 }
                 StringBuilder subCondition = new StringBuilder("(");
+                List<string> groupWithScripts = new List<string>();
+                string recurveTableName = string.Empty;
+                string recurveTablePetName = string.Empty;
                 int index = 0;
                 foreach (var subQueryItem in groupQuery.Criterias)
                 {
-                    subCondition.AppendFormat("{0} {1}", index > 0 ? " " + subQueryItem.Item1.ToString() : "", TranslateCondition(groupQuery, subQueryItem, parameters, objectName));
+                    var subGroupResult = TranslateCondition(groupQuery, subQueryItem, parameters, objectName);
+                    if (!subGroupResult.WithScripts.IsNullOrEmpty())
+                    {
+                        recurveTableName = subGroupResult.RecurveObjectName;
+                        recurveTablePetName = subGroupResult.RecurvePetName;
+                        groupWithScripts.AddRange(subGroupResult.WithScripts);
+                    }
+                    subCondition.AppendFormat("{0} {1}"
+                        , index > 0 ? " " + subQueryItem.Item1.ToString() : ""
+                        , subGroupResult.ConditionString);
                     index++;
                 }
-                return subCondition.Append(")").ToString();
+                var groupResult = TranslateResult.CreateNewResult(subCondition.Append(")").ToString());
+                groupResult.RecurveObjectName = recurveTableName;
+                groupResult.RecurvePetName = recurveTablePetName;
+                groupResult.WithScripts = groupWithScripts;
+                return groupResult;
             }
-            return string.Empty;
+            return TranslateResult.Empty;
         }
 
         /// <summary>
@@ -182,11 +315,11 @@ namespace EZNEW.Data.Translators
         /// <param name="criteria">criteria</param>
         /// <param name="parameters">parameters</param>
         /// <returns></returns>
-        string TranslateCriteria(IQuery query, Criteria criteria, Dictionary<string, object> parameters, string objectName)
+        TranslateResult TranslateCriteria(IQuery query, Criteria criteria, Dictionary<string, object> parameters, string objectName)
         {
             if (criteria == null)
             {
-                return string.Empty;
+                return TranslateResult.Empty;
             }
             IQuery valueQuery = criteria.Value as IQuery;
             string parameterName = criteria.Name + parameters.Count.ToString();
@@ -208,10 +341,33 @@ namespace EZNEW.Data.Translators
                 {
                     conditionString = "WHERE " + conditionString;
                 }
-                return string.Format("{0} {1} (SELECT {2}.`{3}` FROM `{4}` {5} {6} {7} {8})", ConvertCriteriaName(valueQuery, objectName, criteria), sqlOperator, subObjName, valueQueryField.FieldName, valueQueryObjectName, subObjName, conditionString, subQueryResult.OrderString, topString);
+                var valueQueryCondition = string.Format("{0} {1} (SELECT {2}.`{3}` FROM `{4}` AS {5}{6} {7} {8} {9})"
+                    , ConvertCriteriaName(valueQuery, objectName, criteria)
+                    , sqlOperator
+                    , subObjName
+                    , valueQueryField.FieldName
+                    , valueQueryObjectName
+                    , subObjName
+                    , subQueryResult.JoinScript
+                    , conditionString
+                    , subQueryResult.OrderString
+                    , topString);
+                var valueQueryResult = TranslateResult.CreateNewResult(valueQueryCondition);
+                if (!subQueryResult.WithScripts.IsNullOrEmpty())
+                {
+                    valueQueryResult.WithScripts = new List<string>(subQueryResult.WithScripts);
+                    valueQueryResult.RecurveObjectName = subQueryResult.RecurveObjectName;
+                    valueQueryResult.RecurvePetName = subQueryResult.RecurvePetName;
+                }
+                return valueQueryResult;
             }
             parameters.Add(parameterName, FormatCriteriaValue(criteria.Operator, criteria.GetCriteriaRealValue()));
-            return string.Format("{0} {1} {2}{3}", ConvertCriteriaName(query, objectName, criteria), sqlOperator, parameterPrefix, parameterName);
+            var criteriaCondition = string.Format("{0} {1} {2}{3}"
+                , ConvertCriteriaName(query, objectName, criteria)
+                , sqlOperator
+                , parameterPrefix
+                , parameterName);
+            return TranslateResult.CreateNewResult(criteriaCondition);
         }
 
         /// <summary>
@@ -329,6 +485,119 @@ namespace EZNEW.Data.Translators
                     break;
             }
             return convertValue;
+        }
+
+        /// <summary>
+        /// get join operator
+        /// </summary>
+        /// <param name="joinType">join type</param>
+        /// <returns></returns>
+        string GetJoinOperator(JoinType joinType)
+        {
+            return joinOperatorDict[joinType];
+        }
+
+        /// <summary>
+        /// get join condition
+        /// </summary>
+        /// <param name="sourceQuery">source query</param>
+        /// <param name="joinItem">join item</param>
+        /// <returns></returns>
+        string GetJoinCondition(IQuery sourceQuery, JoinItem joinItem, string sourceObjShortName, string targetObjShortName)
+        {
+            if (joinItem.JoinType == JoinType.CrossJoin)
+            {
+                return string.Empty;
+            }
+            var joinFields = joinItem?.JoinFields.Where(r => !r.Key.IsNullOrEmpty() && !r.Value.IsNullOrEmpty());
+            var sourceEntityType = QueryManager.GetQueryModelRelationEntityType(sourceQuery.QueryModelType);
+            var targetEntityType = QueryManager.GetQueryModelRelationEntityType(joinItem.JoinQuery.QueryModelType);
+            bool useValueAsSource = false;
+            if (joinFields.IsNullOrEmpty())
+            {
+                joinFields = EntityManager.GetRelationFields(sourceEntityType, targetEntityType);
+            }
+            if (joinFields.IsNullOrEmpty())
+            {
+                useValueAsSource = true;
+                joinFields = EntityManager.GetRelationFields(targetEntityType, sourceEntityType);
+            }
+            if (joinFields.IsNullOrEmpty())
+            {
+                return string.Empty;
+            }
+
+            List<string> joinList = new List<string>();
+            foreach (var joinField in joinFields)
+            {
+                if (joinField.Key.IsNullOrEmpty() || joinField.Value.IsNullOrEmpty())
+                {
+                    continue;
+                }
+                var sourceField = DataManager.GetField(ServerType.MySQL, sourceEntityType, joinField.Key);
+                var targetField = DataManager.GetField(ServerType.MySQL, targetEntityType, joinField.Value);
+                joinList.Add(string.Format(" {0}.`{1}`{2}{3}.`{4}`",
+                    sourceObjShortName,
+                    useValueAsSource ? targetField.FieldName : sourceField.FieldName,
+                    GetJoinOperator(joinItem.Operator),
+                    targetObjShortName,
+                    useValueAsSource ? sourceField.FieldName : targetField.FieldName
+                    ));
+            }
+            return joinList.IsNullOrEmpty() ? string.Empty : " ON" + string.Join(" AND", joinList);
+        }
+
+        /// <summary>
+        /// get sql operator by condition operator
+        /// </summary>
+        /// <param name="joinOperator"></param>
+        /// <returns></returns>
+        string GetJoinOperator(JoinOperator joinOperator)
+        {
+            string sqlOperator = string.Empty;
+            switch (joinOperator)
+            {
+                case JoinOperator.Equal:
+                    sqlOperator = EqualOperator;
+                    break;
+                case JoinOperator.GreaterThan:
+                    sqlOperator = GreaterThanOperator;
+                    break;
+                case JoinOperator.GreaterThanOrEqual:
+                    sqlOperator = GreaterThanOrEqualOperator;
+                    break;
+                case JoinOperator.NotEqual:
+                    sqlOperator = NotEqualOperator;
+                    break;
+                case JoinOperator.LessThan:
+                    sqlOperator = LessThanOperator;
+                    break;
+                case JoinOperator.LessThanOrEqual:
+                    sqlOperator = LessThanOrEqualOperator;
+                    break;
+            }
+            return sqlOperator;
+        }
+
+        /// <summary>
+        /// format with script
+        /// </summary>
+        /// <returns></returns>
+        string FormatWithScript(List<string> withScripts)
+        {
+            if (withScripts.IsNullOrEmpty())
+            {
+                return string.Empty;
+            }
+            return string.Format("WITH RECURSIVE {0}", string.Join(",", withScripts));
+        }
+
+        /// <summary>
+        /// init
+        /// </summary>
+        void Init()
+        {
+            recurveObjectSequence = subObjectSequence = 0;
         }
 
         #endregion
