@@ -168,14 +168,11 @@ namespace EZNEW.Data.Config
                 return string.Empty;
             }
             DataEntityConfigs.TryGetValue(entityType.GUID, out DataEntityConfig dataEntityConfig);
-            string objectName = string.Empty;
-            if (dataEntityConfig != null && dataEntityConfig.ServerEntitys != null && dataEntityConfig.ServerEntitys.ContainsKey(serverType))
+            EntityServerTypeConfig entityServerTypeConfig = null;
+            string objectName = defaultName;
+            if ((dataEntityConfig?.ServerEntitys?.TryGetValue(serverType, out entityServerTypeConfig) ?? false) && !string.IsNullOrWhiteSpace(entityServerTypeConfig?.TableName))
             {
-                objectName = dataEntityConfig.ServerEntitys[serverType]?.TableName ?? string.Empty;
-            }
-            if (objectName.IsNullOrEmpty())
-            {
-                objectName = defaultName;
+                return entityServerTypeConfig.TableName;
             }
             if (objectName.IsNullOrEmpty() && searchEntityConfig)
             {
@@ -273,6 +270,62 @@ namespace EZNEW.Data.Config
             }
             var defaultFields = EntityManager.GetFields(entityType, propertyNames);
             return defaultFields ?? new List<EntityField>(0);
+        }
+
+        #endregion
+
+        #region get edit fields
+
+        /// <summary>
+        /// get edit fields
+        /// </summary>
+        /// <param name="entityType">entity type</param>
+        /// <returns></returns>
+        public static List<EntityField> GetEditFields(ServerType serverType, Type entityType)
+        {
+            return EntityManager.GetEntityEditFields(entityType);
+        }
+
+        #endregion
+
+        #region get query fields
+
+        /// <summary>
+        /// get query fields
+        /// </summary>
+        /// <param name="entityType">entity type</param>
+        /// <param name="query">query</param>
+        /// <returns></returns>
+        public static List<EntityField> GetQueryFields(ServerType serverType, Type entityType, IQuery query)
+        {
+            if (entityType == null || query == null)
+            {
+                return new List<EntityField>(0);
+            }
+            return query.GetActuallyQueryFields(entityType);
+        }
+
+        #endregion
+
+        #region get default field
+
+        /// <summary>
+        /// get default field
+        /// </summary>
+        /// <param name="entityType">entity type</param>
+        /// <returns></returns>
+        public static EntityField GetDefaultField(ServerType serverType, Type entityType)
+        {
+            if (entityType == null)
+            {
+                return string.Empty;
+            }
+            var queryFields = EntityManager.GetEntityQueryFields(entityType);
+            if (queryFields.IsNullOrEmpty())
+            {
+                return string.Empty;
+            }
+            return queryFields[0];
         }
 
         #endregion

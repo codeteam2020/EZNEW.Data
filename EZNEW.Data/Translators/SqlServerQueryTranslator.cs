@@ -58,6 +58,11 @@ namespace EZNEW.Data.Translators
             }
         }
 
+        /// <summary>
+        /// parameter sequence
+        /// </summary>
+        public int ParameterSequence { get; set; } = 0;
+
         #endregion
 
         #region Functions
@@ -322,7 +327,7 @@ namespace EZNEW.Data.Translators
                 return TranslateResult.Empty;
             }
             IQuery valueQuery = criteria.Value as IQuery;
-            string parameterName = criteria.Name + parameters.Count.ToString();
+            string parameterName = criteria.Name + ParameterSequence++;
             string sqlOperator = GetOperator(criteria.Operator);
             if (valueQuery != null)
             {
