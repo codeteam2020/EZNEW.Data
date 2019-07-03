@@ -35,7 +35,6 @@ namespace EZNEW.Data
             }
             set
             {
-                
             }
         }
 
@@ -176,11 +175,12 @@ namespace EZNEW.Data
             {
                 bool notOrder = cmd.Query == null || cmd.Query.Orders.IsNullOrEmpty();
                 int dataSize = cmd.Query?.QuerySize ?? 0;
+                var entityCompare = new EntityCompare<T>();
                 foreach (var server in servers)
                 {
                     var engine = DataManager.DbEngines[server.ServerType];
                     var newDataList = await engine.QueryAsync<T>(server, cmd).ConfigureAwait(false);
-                    dataList = dataList == null ? newDataList : dataList.Union(newDataList);//merge data
+                    dataList = dataList == null ? newDataList : dataList.Union(newDataList, entityCompare);//merge data
                     if (dataSize > 0 && dataList.Count() >= dataSize && notOrder)
                     {
                         return dataList.Take(dataSize);
