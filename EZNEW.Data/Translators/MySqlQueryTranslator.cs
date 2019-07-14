@@ -28,6 +28,7 @@ namespace EZNEW.Data.Translators
         const string InOperator = "IN";
         const string NotInOperator = "NOT IN";
         const string LikeOperator = "LIKE";
+        const string NotLikeOperator = "NOT LIKE";
         public const string ObjPetName = "TB";
         int subObjectSequence = 0;
         int recurveObjectSequence = 0;
@@ -414,6 +415,11 @@ namespace EZNEW.Data.Translators
                 case CriteriaOperator.EndLike:
                     sqlOperator = LikeOperator;
                     break;
+                case CriteriaOperator.NotLike:
+                case CriteriaOperator.NotBeginLike:
+                case CriteriaOperator.NotEndLike:
+                    sqlOperator = NotLikeOperator;
+                    break;
             }
             return sqlOperator;
         }
@@ -430,12 +436,15 @@ namespace EZNEW.Data.Translators
             switch (criteriaOperator)
             {
                 case CriteriaOperator.Like:
+                case CriteriaOperator.NotLike:
                     realValue = string.Format("%{0}%", value);
                     break;
                 case CriteriaOperator.BeginLike:
+                case CriteriaOperator.NotBeginLike:
                     realValue = string.Format("{0}%", value);
                     break;
                 case CriteriaOperator.EndLike:
+                case CriteriaOperator.NotEndLike:
                     realValue = string.Format("%{0}", value);
                     break;
             }
