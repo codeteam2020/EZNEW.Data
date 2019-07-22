@@ -1,6 +1,6 @@
 # EZNEW.Data
 
-EZNEW.Data provides data access management and support for EZNEW.Develop, a domain-driven development framework
+EZNEW.Data provides unified data access support and management for EZNEW.Develop, a domain-driven development framework
 
 # Reporting issues and bugs
 
