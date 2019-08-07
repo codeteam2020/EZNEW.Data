@@ -10,6 +10,7 @@ using EZNEW.Develop.Command;
 using EZNEW.Develop.CQuery;
 using System.Linq;
 using EZNEW.Framework.IoC;
+using System.Data;
 
 namespace EZNEW.Data.Config
 {
@@ -25,6 +26,11 @@ namespace EZNEW.Data.Config
         {
             get; set;
         }
+
+        /// <summary>
+        /// get db connection
+        /// </summary>
+        public static Func<ServerInfo, IDbConnection> GetDBConnection { get; set; }
 
         /// <summary>
         /// db engines
@@ -205,12 +211,11 @@ namespace EZNEW.Data.Config
         /// <returns></returns>
         public static string GetQueryRelationObjectName(ServerType serverType, IQuery query)
         {
-            if (query == null || query.QueryModelType == null)
+            if (query == null || query.EntityType == null)
             {
                 return string.Empty;
             }
-            var type = QueryManager.GetQueryModelRelationEntityType(query.QueryModelType);
-            return GetEntityObjectName(serverType, type);
+            return GetEntityObjectName(serverType, query.EntityType);
         }
 
         #endregion
@@ -243,12 +248,11 @@ namespace EZNEW.Data.Config
         /// <returns></returns>
         public static EntityField GetField(ServerType serverType, IQuery query, string propertyName)
         {
-            if (query == null)
+            if (query == null || query.EntityType == null)
             {
                 return propertyName;
             }
-            var type = QueryManager.GetQueryModelRelationEntityType(query.QueryModelType);
-            return GetField(serverType, type, propertyName);
+            return GetField(serverType, query.EntityType, propertyName);
         }
 
         #endregion

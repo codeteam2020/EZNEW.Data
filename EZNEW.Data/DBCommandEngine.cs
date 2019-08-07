@@ -33,6 +33,10 @@ namespace EZNEW.Data
             {
                 return identityKey;
             }
+            set
+            {
+
+            }
         }
 
         #region execute
