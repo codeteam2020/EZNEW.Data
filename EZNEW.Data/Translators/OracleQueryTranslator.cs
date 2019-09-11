@@ -13,9 +13,9 @@ using System.Text;
 namespace EZNEW.Data.Translators
 {
     /// <summary>
-    /// Query Translator Implement For SqlServer DataBase
+    /// query translator implement for oracle
     /// </summary>
-    public class SqlServerQueryTranslator : IQueryTranslator
+    public class OracleQueryTranslator : IQueryTranslator
     {
         #region Fields
 
@@ -32,7 +32,7 @@ namespace EZNEW.Data.Translators
         public const string ObjPetName = "TB";
         int subObjectSequence = 0;
         int recurveObjectSequence = 0;
-        string parameterPrefix = "@";
+        string parameterPrefix = ":";
         const string TreeTableName = "RecurveTable";
         const string TreeTablePetName = "RTT";
         static Dictionary<JoinType, string> joinOperatorDict = new Dictionary<JoinType, string>()
@@ -169,9 +169,9 @@ namespace EZNEW.Data.Translators
                                 , conditionBuilder.Length == 0 ? "" : " AND"
                                 , joinQueryResult.ConditionString);
                         }
-                        joinBuilder.AppendFormat(" {0} [{1}] AS {2}{3}"
+                        joinBuilder.AppendFormat(" {0} {1} {2}{3}"
                             , GetJoinOperator(joinItem.JoinType)
-                            , DataManager.GetQueryRelationObjectName(ServerType.SQLServer, joinItem.JoinQuery)
+                            , DataManager.GetQueryRelationObjectName(ServerType.Oracle, joinItem.JoinQuery)
                             , joinObjName
                             , GetJoinCondition(query, joinItem, objectName, joinObjName));
                         if (!joinQueryResult.JoinScript.IsNullOrEmpty())
@@ -196,13 +196,13 @@ namespace EZNEW.Data.Translators
                 if (query.RecurveCriteria != null)
                 {
                     allowJoin = false;
-                    string nowConditionString = conditionString;
-                    EntityField recurveField = DataManager.GetField(ServerType.SQLServer, query, query.RecurveCriteria.Key);
-                    EntityField recurveRelationField = DataManager.GetField(ServerType.SQLServer, query, query.RecurveCriteria.RelationKey);
+                    string nowConditionString = conditionBuilder.ToString();
+                    EntityField recurveField = DataManager.GetField(ServerType.Oracle, query, query.RecurveCriteria.Key);
+                    EntityField recurveRelationField = DataManager.GetField(ServerType.Oracle, query, query.RecurveCriteria.RelationKey);
                     var recurveIndex = recurveObjectSequence++;
                     recurveTableName = string.Format("{0}{1}", TreeTableName, recurveIndex);
                     recurveTablePetName = string.Format("{0}{1}", TreeTablePetName, recurveIndex);
-                    conditionString = string.Format("{0}.[{1}] IN (SELECT {3}.[{1}] FROM [{2}] AS {3})"
+                    conditionString = string.Format("{0}.{1} IN (SELECT {3}.{1} FROM {2} {3})"
                         , objectName
                         , recurveField.FieldName
                         , recurveTableName
@@ -210,8 +210,8 @@ namespace EZNEW.Data.Translators
                     string firstObjectPetName = objectName;
                     string secondObjectPetName = objectName;
                     string firstTreeTablePetName = recurveTablePetName;
-                    string queryObjectName = DataManager.GetQueryRelationObjectName(ServerType.SQLServer, query);
-                    string withScript = string.Format("{0} AS (SELECT {1}.[{2}],{1}.[{3}] FROM [{4}] AS {1}{8} {5} UNION ALL SELECT {6}.[{2}],{6}.[{3}] FROM [{4}] AS {6},{0} AS {7}"
+                    string queryObjectName = DataManager.GetQueryRelationObjectName(ServerType.Oracle, query);
+                    string withScript = string.Format("{0} AS (SELECT {1}.{2},{1}.{3} FROM {4} {1}{8} {5} UNION ALL SELECT {6}.{2},{6}.{3} FROM {4} {6} JOIN {0} {7}"
                         , recurveTableName
                         , firstObjectPetName
                         , recurveField.FieldName
@@ -223,7 +223,7 @@ namespace EZNEW.Data.Translators
                         , joinScript);
                     if (query.RecurveCriteria.Direction == RecurveDirection.Up)
                     {
-                        withScript = string.Format("{0} WHERE {1}.[{2}]={3}.[{4}])"
+                        withScript = string.Format("{0} ON {1}.{2}={3}.{4})"
                             , withScript
                             , secondObjectPetName
                             , recurveField.FieldName
@@ -232,7 +232,7 @@ namespace EZNEW.Data.Translators
                     }
                     else
                     {
-                        withScript = string.Format("{0} WHERE {1}.[{2}]={3}.[{4}])"
+                        withScript = string.Format("{0} ON {1}.{2}={3}.{4})"
                             , withScript
                             , secondObjectPetName
                             , recurveRelationField.FieldName
@@ -332,32 +332,32 @@ namespace EZNEW.Data.Translators
             string sqlOperator = GetOperator(criteria.Operator);
             if (valueQuery != null)
             {
-                string valueQueryObjectName = DataManager.GetQueryRelationObjectName(ServerType.SQLServer, valueQuery);
-                var valueQueryField = DataManager.GetField(ServerType.SQLServer, valueQuery, valueQuery.QueryFields[0]);
+                var valueQueryObjectName = DataManager.GetQueryRelationObjectName(ServerType.Oracle, valueQuery);
+                var valueQueryField = DataManager.GetField(ServerType.Oracle, valueQuery, valueQuery.QueryFields[0]);
                 string subObjName = "TSB" + subObjectSequence;
                 subObjectSequence++;
                 var subQueryResult = ExecuteTranslate(valueQuery, parameters, subObjName, true);
                 string topString = "";
                 if (sqlOperator != InOperator && sqlOperator != NotInOperator)
                 {
-                    topString = "TOP 1";
+                    topString = "LIMIT 0,1";
                 }
                 string conditionString = subQueryResult.ConditionString;
                 if (!string.IsNullOrWhiteSpace(conditionString))
                 {
                     conditionString = "WHERE " + conditionString;
                 }
-                var valueQueryCondition = string.Format("{0} {1} (SELECT {2} {3}.[{4}] FROM [{5}] AS {6}{7} {8} {9})"
+                var valueQueryCondition = string.Format("{0} {1} (SELECT {2}.{3} FROM {4} {5}{6} {7} {8} {9})"
                     , ConvertCriteriaName(valueQuery, objectName, criteria)
                     , sqlOperator
-                    , topString
                     , subObjName
                     , valueQueryField.FieldName
                     , valueQueryObjectName
                     , subObjName
                     , subQueryResult.JoinScript
                     , conditionString
-                    , subQueryResult.OrderString);
+                    , subQueryResult.OrderString
+                    , topString);
                 var valueQueryResult = TranslateResult.CreateNewResult(valueQueryCondition);
                 if (!subQueryResult.WithScripts.IsNullOrEmpty())
                 {
@@ -482,20 +482,20 @@ namespace EZNEW.Data.Translators
         /// <returns></returns>
         string FormatCriteriaName(IQuery query, string objectName, string fieldName, ICriteriaConvert convert)
         {
-            var field = DataManager.GetField(ServerType.SQLServer, query, fieldName);
+            var field = DataManager.GetField(ServerType.Oracle, query, fieldName);
             fieldName = field.FieldName;
             if (convert == null)
             {
-                return string.Format("{0}.[{1}]", objectName, fieldName);
+                return string.Format("{0}.{1}", objectName, fieldName);
             }
             string convertValue = string.Empty;
             switch (convert.Type)
             {
                 case CriteriaConvertType.StringLength:
-                    convertValue = string.Format("LEN({0}.[{1}])", objectName, fieldName);
+                    convertValue = string.Format("LENGTH({0}.{1})", objectName, fieldName);
                     break;
                 default:
-                    convertValue = string.Format("{0}.[{1}]", objectName, fieldName);
+                    convertValue = string.Format("{0}.{1}", objectName, fieldName);
                     break;
             }
             return convertValue;
@@ -548,9 +548,9 @@ namespace EZNEW.Data.Translators
                 {
                     continue;
                 }
-                var sourceField = DataManager.GetField(ServerType.SQLServer, sourceEntityType, joinField.Key);
-                var targetField = DataManager.GetField(ServerType.SQLServer, targetEntityType, joinField.Value);
-                joinList.Add(string.Format(" {0}.[{1}]{2}{3}.[{4}]",
+                var sourceField = DataManager.GetField(ServerType.Oracle, sourceEntityType, joinField.Key);
+                var targetField = DataManager.GetField(ServerType.Oracle, targetEntityType, joinField.Value);
+                joinList.Add(string.Format(" {0}.{1}{2}{3}.{4}",
                     sourceObjShortName,
                     useValueAsSource ? targetField.FieldName : sourceField.FieldName,
                     GetJoinOperator(joinItem.Operator),

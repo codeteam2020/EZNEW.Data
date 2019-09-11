@@ -6,9 +6,9 @@ using System.Text;
 namespace EZNEW.Data.Config
 {
     /// <summary>
-    /// entity servertype config
+    /// server type entity config
     /// </summary>
-    public class EntityServerTypeConfig
+    public class ServerTypeEntityConfig
     {
         #region Propertys
 
@@ -17,7 +17,15 @@ namespace EZNEW.Data.Config
         /// </summary>
         public string TableName
         {
-            get;set;
+            get; set;
+        }
+
+        /// <summary>
+        /// fields
+        /// </summary>
+        public List<EntityField> Fields
+        {
+            get; set;
         }
 
         #endregion

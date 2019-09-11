@@ -156,9 +156,9 @@ namespace EZNEW.Data.Translators
                         {
                             continue;
                         }
-                        if (joinItem.JoinQuery.QueryModelType == null)
+                        if (joinItem.JoinQuery.EntityType == null)
                         {
-                            throw new EZNEWException("IQuery object must set query model type if use in join operation");
+                            throw new EZNEWException("IQuery object must set entity type if use in join operation");
                         }
                         string joinObjName = "TSB" + subObjectSequence;
                         subObjectSequence++;
@@ -524,8 +524,8 @@ namespace EZNEW.Data.Translators
                 return string.Empty;
             }
             var joinFields = joinItem?.JoinFields.Where(r => !r.Key.IsNullOrEmpty() && !r.Value.IsNullOrEmpty());
-            var sourceEntityType = QueryManager.GetQueryModelRelationEntityType(sourceQuery.QueryModelType);
-            var targetEntityType = QueryManager.GetQueryModelRelationEntityType(joinItem.JoinQuery.QueryModelType);
+            var sourceEntityType = sourceQuery.EntityType;
+            var targetEntityType = joinItem.JoinQuery.EntityType;
             bool useValueAsSource = false;
             if (joinFields.IsNullOrEmpty())
             {

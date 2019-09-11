@@ -56,6 +56,9 @@ namespace EZNEW.Data
                 case ServerType.MySQL:
                     translator = new MySqlQueryTranslator();
                     break;
+                case ServerType.Oracle:
+                    translator = new OracleQueryTranslator();
+                    break;
             }
             return translator;
         }

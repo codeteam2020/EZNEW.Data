@@ -10,9 +10,9 @@ namespace EZNEW.Data.Config
     public class DataConfig
     {
         /// <summary>
-        /// servers
+        /// server type config
         /// </summary>
-        public Dictionary<ServerType, DBServerConfig> Servers
+        public Dictionary<ServerType, ServerTypeConfig> Servers
         {
             get;set;
         }
