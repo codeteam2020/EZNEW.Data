@@ -29,6 +29,8 @@ namespace EZNEW.Data.Translators
         const string NotInOperator = "NOT IN";
         const string LikeOperator = "LIKE";
         const string NotLikeOperator = "NOT LIKE";
+        const string IsNullOperator = "IS NULL";
+        const string NotNullOperator = "IS NOT NULL";
         public const string ObjPetName = "TB";
         int subObjectSequence = 0;
         int recurveObjectSequence = 0;
@@ -278,6 +280,7 @@ namespace EZNEW.Data.Translators
             IQuery groupQuery = queryItem.Item2 as IQuery;
             if (groupQuery != null && groupQuery.Criterias != null && groupQuery.Criterias.Count > 0)
             {
+                groupQuery.SetEntityType(query.EntityType);
                 if (groupQuery.Criterias.Count == 1)
                 {
                     var firstCriterias = groupQuery.Criterias[0];
@@ -327,9 +330,16 @@ namespace EZNEW.Data.Translators
             {
                 return TranslateResult.Empty;
             }
+            string sqlOperator = GetOperator(criteria.Operator);
+            bool needParameter = OperatorNeedParameter(criteria.Operator);
+            if (!needParameter)
+            {
+                return TranslateResult.CreateNewResult(string.Format("{0} {1}"
+                , ConvertCriteriaName(query, objectName, criteria)
+                , sqlOperator));
+            }
             IQuery valueQuery = criteria.Value as IQuery;
             string parameterName = criteria.Name + ParameterSequence++;
-            string sqlOperator = GetOperator(criteria.Operator);
             if (valueQuery != null)
             {
                 var valueQueryObjectName = DataManager.GetQueryRelationObjectName(ServerType.MySQL, valueQuery);
@@ -420,8 +430,32 @@ namespace EZNEW.Data.Translators
                 case CriteriaOperator.NotEndLike:
                     sqlOperator = NotLikeOperator;
                     break;
+                case CriteriaOperator.IsNull:
+                    sqlOperator = IsNullOperator;
+                    break;
+                case CriteriaOperator.NotNull:
+                    sqlOperator = NotNullOperator;
+                    break;
             }
             return sqlOperator;
+        }
+
+        /// <summary>
+        /// operator need parameter
+        /// </summary>
+        /// <param name="criteriaOperator">criteria operator</param>
+        /// <returns></returns>
+        bool OperatorNeedParameter(CriteriaOperator criteriaOperator)
+        {
+            bool needParameter = true;
+            switch (criteriaOperator)
+            {
+                case CriteriaOperator.NotNull:
+                case CriteriaOperator.IsNull:
+                    needParameter = false;
+                    break;
+            }
+            return needParameter;
         }
 
         /// <summary>
