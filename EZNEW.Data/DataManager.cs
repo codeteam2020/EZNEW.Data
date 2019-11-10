@@ -176,7 +176,6 @@ namespace EZNEW.Data
             InitFolderConfig(configRootPath);
         }
 
-
         static void InitFolderConfig(string path)
         {
             if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
