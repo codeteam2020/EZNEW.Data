@@ -1,7 +1,9 @@
-﻿using EZNEW.Develop.Command;
+﻿using Dapper;
+using EZNEW.Develop.Command;
 using EZNEW.Develop.Entity;
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -20,18 +22,20 @@ namespace EZNEW.Data
         /// </summary>
         /// <typeparam name="T">data type</typeparam>
         /// <param name="server">server</param>
+        /// <param name="executeOption">execute option</param>
         /// <param name="cmds">command</param>
         /// <returns>data numbers</returns>
-        int Execute(ServerInfo server, params ICommand[] cmds);
+        int Execute(ServerInfo server, CommandExecuteOption executeOption, params ICommand[] cmds);
 
         /// <summary>
         /// execute command
         /// </summary>
         /// <typeparam name="T">data type</typeparam>
         /// <param name="server">server</param>
+        /// <param name="executeOption">execute option</param>
         /// <param name="cmds">command</param>
         /// <returns>data numbers</returns>
-        Task<int> ExecuteAsync(ServerInfo server, params ICommand[] cmds);
+        Task<int> ExecuteAsync(ServerInfo server, CommandExecuteOption executeOption, params ICommand[] cmds);
 
         #endregion
 
@@ -112,22 +116,30 @@ namespace EZNEW.Data
         Task<bool> QueryAsync(ServerInfo server, ICommand cmd);
 
         /// <summary>
-        /// query single value
+        /// aggregate value
         /// </summary>
         /// <typeparam name="T">data type</typeparam>
         /// <param name="server">database server</param>
         /// <param name="cmd">command</param>
         /// <returns>query data</returns>
-        T QuerySingle<T>(ServerInfo server, ICommand cmd);
+        T AggregateValue<T>(ServerInfo server, ICommand cmd);
 
         /// <summary>
-        /// query single value
+        /// aggregate value
         /// </summary>
         /// <typeparam name="T">data type</typeparam>
         /// <param name="server">database server</param>
         /// <param name="cmd">command</param>
         /// <returns>query data</returns>
-        Task<T> QuerySingleAsync<T>(ServerInfo server, ICommand cmd);
+        Task<T> AggregateValueAsync<T>(ServerInfo server, ICommand cmd);
+
+        /// <summary>
+        /// query multiple
+        /// </summary>
+        /// <param name="server">database server</param>
+        /// <param name="cmd">query cmd</param>
+        /// <returns>data</returns>
+        Task<DataSet> QueryMultipleAsync(ServerInfo server, ICommand cmd);
 
         #endregion
     }

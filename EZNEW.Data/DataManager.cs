@@ -15,6 +15,8 @@ using EZNEW.Framework.Fault;
 using System.Collections.Concurrent;
 using System.IO;
 using EZNEW.Data.Config;
+using Dapper;
+using EZNEW.Develop.DataAccess;
 
 namespace EZNEW.Data
 {
@@ -26,9 +28,10 @@ namespace EZNEW.Data
         static DataManager()
         {
             ContainerManager.Container?.Register(typeof(ICommandEngine), typeof(DBCommandEngine));
+            SqlMapper.Settings.ApplyNullValues = true;
         }
 
-        #region Propertys
+        #region propertys
 
         /// <summary>
         /// get or set get database servers method
@@ -96,9 +99,29 @@ namespace EZNEW.Data
         /// </summary>
         static Dictionary<ServerType, BatchExecuteConfig> ServerTypeExecuteConfigCollection = new Dictionary<ServerType, BatchExecuteConfig>();
 
+        /// <summary>
+        /// server data isolation level collection
+        /// </summary>
+        static Dictionary<ServerType, DataIsolationLevel> ServerTypeDataIsolationLevelCollection = new Dictionary<ServerType, DataIsolationLevel>()
+        {
+            { ServerType.MySQL,DataIsolationLevel.RepeatableRead },
+            { ServerType.SQLServer,DataIsolationLevel.ReadCommitted },
+            { ServerType.Oracle,DataIsolationLevel.ReadCommitted }
+        };
+        static Dictionary<DataIsolationLevel, IsolationLevel> DataIsolationLevelMapCollection = new Dictionary<DataIsolationLevel, IsolationLevel>()
+        {
+            { DataIsolationLevel.Chaos,IsolationLevel.Chaos },
+            { DataIsolationLevel.ReadCommitted,IsolationLevel.ReadCommitted },
+            { DataIsolationLevel.ReadUncommitted,IsolationLevel.ReadUncommitted },
+            { DataIsolationLevel.RepeatableRead,IsolationLevel.RepeatableRead },
+            { DataIsolationLevel.Serializable,IsolationLevel.Serializable },
+            { DataIsolationLevel.Snapshot,IsolationLevel.Snapshot },
+            { DataIsolationLevel.Unspecified,IsolationLevel.Unspecified }
+        };
+
         #endregion
 
-        #region Methods
+        #region methods
 
         #region data config
 
@@ -670,7 +693,12 @@ namespace EZNEW.Data
             {
                 throw new Exception("empty fields");
             }
-            return fields;
+            if (query.QueryFields.IsNullOrEmpty() && query.NotQueryFields.IsNullOrEmpty())
+            {
+                return fields;
+            }
+            var queryFields = query.GetActuallyQueryFields(entityType, true, true);
+            return fields.Intersect(queryFields).ToList();
         }
 
         #endregion
@@ -737,6 +765,61 @@ namespace EZNEW.Data
         {
             ServerTypeExecuteConfigCollection.TryGetValue(serverType, out var config);
             return config;
+        }
+
+        #endregion
+
+        #endregion
+
+        #region isolation level
+
+        #region config db server data isolation level
+
+        /// <summary>
+        /// config db server data isolation level
+        /// </summary>
+        /// <param name="serverType">db server type</param>
+        /// <param name="dataIsolationLevel">data isolation level</param>
+        public static void ConfigServerDataIsolationLevel(ServerType serverType, DataIsolationLevel dataIsolationLevel)
+        {
+            ServerTypeDataIsolationLevelCollection[serverType] = dataIsolationLevel;
+        }
+
+        #endregion
+
+        #region get db server data isolation level
+
+        /// <summary>
+        /// get db server data isolation level
+        /// </summary>
+        /// <param name="serverType">db server type</param>
+        /// <returns></returns>
+        public static DataIsolationLevel? GetServerDataIsolationLevel(ServerType serverType)
+        {
+            if (ServerTypeDataIsolationLevelCollection.ContainsKey(serverType))
+            {
+                return ServerTypeDataIsolationLevelCollection[serverType];
+            }
+            return null;
+        }
+
+        #endregion
+
+        #region get system isolation level by data isolation level
+
+        /// <summary>
+        /// get system isolation level by data isolation level
+        /// </summary>
+        /// <param name="dataIsolationLevel">data isolation level</param>
+        /// <returns></returns>
+        public static IsolationLevel? GetSystemIsolationLevel(DataIsolationLevel? dataIsolationLevel)
+        {
+            IsolationLevel? isolationLevel = null;
+            if (dataIsolationLevel.HasValue&& DataIsolationLevelMapCollection.ContainsKey(dataIsolationLevel.Value))
+            {
+                isolationLevel = DataIsolationLevelMapCollection[dataIsolationLevel.Value];
+            }
+            return isolationLevel;
         }
 
         #endregion

@@ -10,6 +10,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using EZNEW.Data.Config;
 using EZNEW.Develop.Entity;
+using System.Data;
 
 namespace EZNEW.Data
 {
@@ -33,10 +34,6 @@ namespace EZNEW.Data
             {
                 return identityKey;
             }
-            set
-            {
-
-            }
         }
 
         #region execute
@@ -44,19 +41,21 @@ namespace EZNEW.Data
         /// <summary>
         /// execute command
         /// </summary>
+        /// <param name="executeOption">execute option</param>
         /// <param name="cmds">commands</param>
         /// <returns>date numbers </returns>
-        public int Execute(params ICommand[] cmds)
+        public int Execute(CommandExecuteOption executeOption, params ICommand[] cmds)
         {
-            return ExecuteAsync(cmds).Result;
+            return ExecuteAsync(executeOption, cmds).Result;
         }
 
         /// <summary>
         /// execute command
         /// </summary>
+        /// <param name="executeOption">execute option</param>
         /// <param name="cmds">commands</param>
         /// <returns>date numbers </returns>
-        public async Task<int> ExecuteAsync(params ICommand[] cmds)
+        public async Task<int> ExecuteAsync(CommandExecuteOption executeOption, params ICommand[] cmds)
         {
             if (cmds.IsNullOrEmpty())
             {
@@ -101,7 +100,7 @@ namespace EZNEW.Data
             {
                 ServerInfo serverInfo = serverInfos[cmdGroup.Key];
                 IDbEngine engine = DataManager.DbEngines[serverInfo.ServerType];
-                totalVal += await engine.ExecuteAsync(serverInfo, cmdGroup.Value.ToArray()).ConfigureAwait(false);
+                totalVal += await engine.ExecuteAsync(serverInfo, executeOption, cmdGroup.Value.ToArray()).ConfigureAwait(false);
             }
             return totalVal;
 
@@ -205,7 +204,7 @@ namespace EZNEW.Data
         /// <typeparam name="T">data type</typeparam>
         /// <param name="cmd">command</param>
         /// <returns></returns>
-        public IPaging<T> QueryPaging<T>(ICommand cmd) where T : BaseEntity<T>
+        public IPaging<T> QueryPaging<T>(ICommand cmd) where T : BaseEntity<T>, new()
         {
             return QueryPagingAsync<T>(cmd).Result;
         }
@@ -216,7 +215,7 @@ namespace EZNEW.Data
         /// <typeparam name="T">data type</typeparam>
         /// <param name="cmd">command</param>
         /// <returns></returns>
-        public async Task<IPaging<T>> QueryPagingAsync<T>(ICommand cmd) where T : BaseEntity<T>
+        public async Task<IPaging<T>> QueryPagingAsync<T>(ICommand cmd) where T : BaseEntity<T>, new()
         {
             var servers = await GetServerAsync(cmd).ConfigureAwait(false);
             VerifyServerEngine(servers.Select(c => c.ServerType).ToArray());
@@ -263,7 +262,7 @@ namespace EZNEW.Data
         /// <typeparam name="T">data type</typeparam>
         /// <param name="cmd">command</param>
         /// <returns></returns>
-        async Task<IPaging<T>> SingleServerPagingAsync<T>(ServerInfo server, ICommand cmd) where T : BaseEntity<T>
+        async Task<IPaging<T>> SingleServerPagingAsync<T>(ServerInfo server, ICommand cmd) where T : BaseEntity<T>, new()
         {
             var engine = DataManager.DbEngines[server.ServerType];
             IEnumerable<T> dataList = await engine.QueryPagingAsync<T>(server, cmd).ConfigureAwait(false);
@@ -271,7 +270,7 @@ namespace EZNEW.Data
             {
                 return new Paging<T>(1, 0, 0, dataList);
             }
-            int totalCount = dataList.ElementAt(0).GetPagingTotalCount();
+            int totalCount = dataList.ElementAt(0).GetTotalCount();
             int page = 1;
             int pageSize = 1;
             if (cmd.Query != null && cmd.Query.PagingInfo != null)
@@ -289,9 +288,9 @@ namespace EZNEW.Data
         /// <typeparam name="T">data type</typeparam>
         /// <param name="cmd">command</param>
         /// <returns>data</returns>
-        public T QuerySingle<T>(ICommand cmd)
+        public T QueryAggregateValue<T>(ICommand cmd)
         {
-            return QuerySingleAsync<T>(cmd).Result;
+            return AggregateValueAsync<T>(cmd).Result;
         }
 
         /// <summary>
@@ -300,59 +299,7 @@ namespace EZNEW.Data
         /// <typeparam name="T">data type</typeparam>
         /// <param name="cmd">command</param>
         /// <returns>data</returns>
-        public async Task<T> QuerySingleAsync<T>(ICommand cmd)
-        {
-            T result;
-            switch (cmd.Operate)
-            {
-                case OperateType.Max:
-                case OperateType.Min:
-                case OperateType.Sum:
-                case OperateType.Avg:
-                case OperateType.Count:
-                    result = await AggregateFunctionAsync<T>(cmd).ConfigureAwait(false);
-                    break;
-                case OperateType.Query:
-                    result = await QuerySingleObjectAsync<T>(cmd).ConfigureAwait(false);
-                    break;
-                default:
-                    result = default(T);
-                    break;
-            }
-            return result;
-        }
-
-        /// <summary>
-        /// query a single data
-        /// </summary>
-        /// <typeparam name="T">data type</typeparam>
-        /// <param name="cmd">command</param>
-        /// <returns></returns>
-        async Task<T> QuerySingleObjectAsync<T>(ICommand cmd)
-        {
-            var servers = await GetServerAsync(cmd).ConfigureAwait(false);
-            VerifyServerEngine(servers.Select(c => c.ServerType).ToArray());
-            T result = default(T);
-            foreach (var server in servers)
-            {
-                var engine = DataManager.DbEngines[server.ServerType];
-                var nowData = await engine.QuerySingleAsync<T>(server, cmd).ConfigureAwait(false);
-                if (nowData != null)
-                {
-                    result = nowData;
-                    break;
-                }
-            }
-            return result;
-        }
-
-        /// <summary>
-        /// Aggregate Function
-        /// </summary>
-        /// <typeparam name="T">data type</typeparam>
-        /// <param name="cmd">command</param>
-        /// <returns>query data</returns>
-        async Task<T> AggregateFunctionAsync<T>(ICommand cmd)
+        public async Task<T> AggregateValueAsync<T>(ICommand cmd)
         {
             var servers = await GetServerAsync(cmd).ConfigureAwait(false);
             VerifyServerEngine(servers.Select(c => c.ServerType).ToArray());
@@ -360,7 +307,7 @@ namespace EZNEW.Data
             foreach (var server in servers)
             {
                 var engine = DataManager.DbEngines[server.ServerType];
-                datas.Add(await engine.QuerySingleAsync<T>(server, cmd).ConfigureAwait(false));
+                datas.Add(await engine.AggregateValueAsync<T>(server, cmd).ConfigureAwait(false));
             }
             if (datas.Count == 1)
             {
@@ -384,6 +331,39 @@ namespace EZNEW.Data
                     break;
             }
             return result;
+        }
+
+        /// <summary>
+        /// query data
+        /// </summary>
+        /// <param name="cmd">query cmd</param>
+        /// <returns>data</returns>
+        public async Task<DataSet> QueryMultipleAsync(ICommand cmd)
+        {
+            var servers = await GetServerAsync(cmd).ConfigureAwait(false);
+            VerifyServerEngine(servers.Select(c => c.ServerType).ToArray());
+            DataSet ds = null;
+            foreach (var server in servers)
+            {
+                var engine = DataManager.DbEngines[server.ServerType];
+                var nowDataSet = await engine.QueryMultipleAsync(server, cmd).ConfigureAwait(false);
+                if (nowDataSet?.Tables == null)
+                {
+                    continue;
+                }
+                if (ds == null)
+                {
+                    ds = nowDataSet;
+                }
+                else
+                {
+                    foreach (DataTable dt in nowDataSet.Tables)
+                    {
+                        ds.Tables.Add(dt);
+                    }
+                }
+            }
+            return ds;
         }
 
         #endregion
