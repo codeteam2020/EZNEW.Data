@@ -522,17 +522,7 @@ namespace EZNEW.Data.Translators
             {
                 return string.Format("{0}.[{1}]", objectName, fieldName);
             }
-            string convertValue = string.Empty;
-            switch (convert.Type)
-            {
-                case CriteriaConvertType.StringLength:
-                    convertValue = string.Format("LEN({0}.[{1}])", objectName, fieldName);
-                    break;
-                default:
-                    convertValue = string.Format("{0}.[{1}]", objectName, fieldName);
-                    break;
-            }
-            return convertValue;
+            return DataManager.ParseCriteriaConvert(convert, ServerType.SQLServer, objectName, fieldName);
         }
 
         /// <summary>

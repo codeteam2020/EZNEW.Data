@@ -17,6 +17,8 @@ using System.IO;
 using EZNEW.Data.Config;
 using Dapper;
 using EZNEW.Develop.DataAccess;
+using EZNEW.Data.CriteriaConvert;
+using EZNEW.Develop.CQuery.CriteriaConvert;
 
 namespace EZNEW.Data
 {
@@ -29,6 +31,7 @@ namespace EZNEW.Data
         {
             ContainerManager.Container?.Register(typeof(ICommandEngine), typeof(DBCommandEngine));
             SqlMapper.Settings.ApplyNullValues = true;
+            ConfigDefaultCriteriaConvertParse();
         }
 
         #region propertys
@@ -118,6 +121,11 @@ namespace EZNEW.Data
             { DataIsolationLevel.Snapshot,IsolationLevel.Snapshot },
             { DataIsolationLevel.Unspecified,IsolationLevel.Unspecified }
         };
+
+        /// <summary>
+        /// criteria convert parse config
+        /// </summary>
+        static Dictionary<string, Func<CriteriaConvertParseOption, string>> CriteriaConvertParseCollection = null;
 
         #endregion
 
@@ -815,7 +823,7 @@ namespace EZNEW.Data
         public static IsolationLevel? GetSystemIsolationLevel(DataIsolationLevel? dataIsolationLevel)
         {
             IsolationLevel? isolationLevel = null;
-            if (dataIsolationLevel.HasValue&& DataIsolationLevelMapCollection.ContainsKey(dataIsolationLevel.Value))
+            if (dataIsolationLevel.HasValue && DataIsolationLevelMapCollection.ContainsKey(dataIsolationLevel.Value))
             {
                 isolationLevel = DataIsolationLevelMapCollection[dataIsolationLevel.Value];
             }
@@ -823,6 +831,76 @@ namespace EZNEW.Data
         }
 
         #endregion
+
+        #endregion
+
+        #region criteria convert
+
+        /// <summary>
+        /// config default criteria convert parse
+        /// </summary>
+        static void ConfigDefaultCriteriaConvertParse()
+        {
+            CriteriaConvertParseCollection = new Dictionary<string, Func<CriteriaConvertParseOption, string>>();
+            Func<CriteriaConvertParseOption, string> defaultParseFunc = option =>
+             {
+                 string format = null;
+                 switch (option.ServerType)
+                 {
+                     case ServerType.SQLServer:
+                         format = SqlServerCriteriaConvertParse.Parse(option);
+                         break;
+                     case ServerType.MySQL:
+                         format = MySqlCriteriaConvertParse.Parse(option);
+                         break;
+                     case ServerType.Oracle:
+                         format = OracleCriteriaConvertParse.Parse(option);
+                         break;
+                     default:
+                         throw new EZNEWException($"cann't resolve criteria convert:{option?.CriteriaConvert?.Name}");
+                 }
+                 return format;
+             };
+            //string length
+            CriteriaConvertParseCollection[CriteriaConvertNames.StringLength] = defaultParseFunc;
+        }
+
+        /// <summary>
+        /// parse criteria convert
+        /// </summary>
+        /// <param name="convert">criteria convert</param>
+        /// <param name="serverType">db server type</param>
+        /// <param name="objectName">object name</param>
+        /// <param name="fieldName">field name</param>
+        /// <returns></returns>
+        internal static string ParseCriteriaConvert(ICriteriaConvert convert, ServerType serverType, string objectName, string fieldName)
+        {
+            if (CriteriaConvertParseCollection.TryGetValue(convert.Name, out var parser))
+            {
+                return parser(new CriteriaConvertParseOption()
+                {
+                    CriteriaConvert = convert,
+                    ServerType = serverType,
+                    ObjectName = objectName,
+                    FieldName = fieldName
+                });
+            }
+            throw new EZNEWException($"didn't config criteria convert:{convert?.Name}");
+        }
+
+        /// <summary>
+        /// config parse criteria
+        /// </summary>
+        /// <param name="convertConfigName">convert config name</param>
+        /// <param name="convertParseFunc">convert parse func</param>
+        public static void ConfigParseCriteria(string convertConfigName, Func<CriteriaConvertParseOption, string> convertParseFunc)
+        {
+            if (string.IsNullOrWhiteSpace(convertConfigName) || convertParseFunc == null)
+            {
+                return;
+            }
+            CriteriaConvertParseCollection[convertConfigName] = convertParseFunc;
+        }
 
         #endregion
 

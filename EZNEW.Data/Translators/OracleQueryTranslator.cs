@@ -488,17 +488,7 @@ namespace EZNEW.Data.Translators
             {
                 return string.Format("{0}.{1}", objectName, fieldName);
             }
-            string convertValue = string.Empty;
-            switch (convert.Type)
-            {
-                case CriteriaConvertType.StringLength:
-                    convertValue = string.Format("LENGTH({0}.{1})", objectName, fieldName);
-                    break;
-                default:
-                    convertValue = string.Format("{0}.{1}", objectName, fieldName);
-                    break;
-            }
-            return convertValue;
+            return DataManager.ParseCriteriaConvert(convert, ServerType.Oracle, objectName, fieldName);
         }
 
         /// <summary>
